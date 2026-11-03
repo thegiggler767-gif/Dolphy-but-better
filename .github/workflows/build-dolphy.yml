@@ -1,0 +1,51 @@
+
+name: Build Dolphy AI Studio APK
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout uploaded ZIP
+        uses: actions/checkout@v4
+
+      - name: Install Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Install Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android API 36
+        run: |
+          sdkmanager 'platforms;android-36' 'build-tools;36.0.0' 'platform-tools'
+
+      - name: Install Gradle 8.11.1
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.11.1'
+
+      - name: Extract source
+        run: |
+          test -f Dolphy-AI-Studio-source.zip
+          mkdir -p extracted
+          unzip -q Dolphy-AI-Studio-source.zip -d extracted
+          test -f extracted/Dolphy-App-main/settings.gradle.kts
+
+      - name: Build debug APK
+        working-directory: extracted/Dolphy-App-main
+        run: gradle --no-daemon --stacktrace assembleDebug
+
+      - name: Upload APK
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Dolphy-AI-Studio-debug-APK
+          path: extracted/Dolphy-App-main/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
