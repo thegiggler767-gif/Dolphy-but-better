@@ -1,0 +1,75 @@
+name: Verify Dolphy designer on Android
+on:
+  workflow_dispatch:
+    inputs:
+      build_run:
+        description: Successful APK build run ID
+        required: true
+  workflow_run:
+    workflows: [Build Dolphy AI Studio APK]
+    types: [completed]
+permissions:
+  actions: read
+  contents: read
+jobs:
+  emulator:
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: Dolphy-AI-Studio-debug-APK
+          run-id: ${{ inputs.build_run || github.event.workflow_run.id }}
+          github-token: ${{ github.token }}
+      - name: Prepare UI checks
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules && sudo udevadm trigger --name-match=kvm
+          cat > verify.py <<'PY'
+          import subprocess as sp, time, re, xml.etree.ElementTree as ET
+          from pathlib import Path
+          pkg = 'com.droid.dolphy'
+          def adb(*args):
+              return sp.check_output(['adb', *map(str,args)],text=True,timeout=35)
+          def launch(route=None):
+              adb('shell','am','force-stop',pkg)
+              cmd=['shell','am','start','-W','-n',pkg+'/.MainActivity']
+              if route: cmd+=['--es',pkg+'.extra.NAV_ROUTE',route]
+              adb(*cmd)
+          def nodes():
+              adb('shell','uiautomator','dump','/sdcard/ui.xml')
+              return list(ET.fromstring(adb('exec-out','cat','/sdcard/ui.xml')).iter('node'))
+          def bounds(n): return list(map(int,re.findall(r'\d+',n.get('bounds'))))
+          def click(n):
+              x,y,X,Y=bounds(n); adb('shell','input','tap',(x+X)//2,(y+Y)//2)
+          def find(label):
+              last=[]
+              for _ in range(18):
+                  time.sleep(1)
+                  try: ns=nodes()
+                  except (ET.ParseError,sp.SubprocessError): continue
+                  last=[n.get('text','') for n in ns if n.get('text')]
+                  for n in ns:
+                      if n.get('text')==label: return n,ns
+                  if any(n.get('class')=='android.widget.Button' for n in ns) and label not in last and any(k in ' '.join(last).lower() for k in ('welcome','добро пожаловать','what’s new','donate','support','telegram')): adb('shell','input','keyevent','4')
+              raise AssertionError((label,last,adb('shell','pidof',pkg)))
+          apk,=Path('.').rglob('*.apk')
+          assert 'Success' in adb('install','-g',str(apk))
+          launch('ui_designer')
+          n,ns=find('Custom home'); _,y,_,Y=bounds(n)
+          toggle=next(k for k in ns if k.get('checkable')=='true' and y<=(bounds(k)[1]+bounds(k)[3])//2<=Y)
+          assert toggle.get('checked')=='false'; click(toggle); time.sleep(1)
+          launch(); find('Edit home'); find('Plugins & AI Studio')
+          click(find('Edit home')[0]); find('Design my UI'); find('Custom startup graphic')
+          launch('plugin/dolphy_startup_designer/main'); click(find('Open designer')[0]); find('Custom home')
+          launch('plugin_manager'); find('Plugin Studio')
+          print('PASS: APK install, designer navigation, stock default, saved custom home, plugin callback and studio')
+          PY
+      - uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          target: google_apis
+          disable-animations: true
+          script: python3 verify.py
