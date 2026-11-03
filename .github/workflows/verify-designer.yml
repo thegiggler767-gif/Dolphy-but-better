@@ -56,14 +56,38 @@ jobs:
               raise AssertionError((label,last,adb('shell','pidof',pkg)))
           apk,=Path('.').rglob('*.apk')
           assert 'Success' in adb('install','-g',str(apk))
+          adb('shell','wm','size','1080x2600')
+          adb('shell','wm','density','220')
           launch('ui_designer')
           n,ns=find('Custom home'); _,y,_,Y=bounds(n)
           toggle=next(k for k in ns if k.get('checkable')=='true' and y<=(bounds(k)[1]+bounds(k)[3])//2<=Y)
           assert toggle.get('checked')=='false'; click(toggle); time.sleep(1)
           launch(); find('Edit home'); find('Plugins & AI Studio')
           click(find('Edit home')[0]); find('Design my UI'); find('Custom startup graphic')
+          def place(label):
+              ns=nodes()
+              match=next((n for n in ns if n.get('text')==label and n.get('enabled')=='true'),None)
+              if match is None:
+                  for _ in range(8):
+                      adb('shell','input','swipe',530,2050,530,800,400); time.sleep(0.6); ns=nodes()
+                      match=next((n for n in ns if n.get('text')==label and n.get('enabled')=='true'),None)
+                      if match is not None: break
+              assert match is not None,label
+              click(match); time.sleep(0.6)
+          import json
+          def saved():
+              xml=ET.fromstring(adb('exec-out','run-as',pkg,'cat','shared_prefs/home_design_v1.xml'))
+              return json.loads(xml.find("string[@name='layout']").text)
+          place('↓'); assert saved()['tiles'][:2]==['stock_modules','stock_bluetooth']
+          place('Remove'); assert 'stock_modules' not in saved()['tiles']
+          place('+ All tools'); assert saved()['tiles'][-1]=='stock_modules'
+          launch(); find('Edit home'); find('All tools')
           launch('plugin/dolphy_startup_designer/main'); click(find('Open designer')[0]); find('Custom home')
           launch('plugin_manager'); find('Plugin Studio')
+          place('Create starter'); place('Save and install in Dolphy'); find('Installed: my_studio_plugin')
+          place('Move down'); assert len(saved()['pluginOrder']) >= 2
+          launch('plugin_manager'); find('Plugin Studio')
+          print('PASS: tile reorder, remove, re-add, in-app plugin install and manager ordering')
           print('PASS: APK install, designer navigation, stock default, saved custom home, plugin callback and studio')
           PY
       - uses: reactivecircus/android-emulator-runner@v2
