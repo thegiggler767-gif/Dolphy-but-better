@@ -1,8 +1,15 @@
-
 name: Build Dolphy AI Studio APK
 
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/build-dolphy.yml'
+      - 'Dolphy-AI-Studio-source.zip'
+
+permissions:
+  contents: read
 
 jobs:
   build:
@@ -19,12 +26,10 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Install Android SDK
+      - name: Install Android API 36 and build tools
         uses: android-actions/setup-android@v3
-
-      - name: Install Android API 36
-        run: |
-          sdkmanager 'platforms;android-36' 'build-tools;36.0.0' 'platform-tools'
+        with:
+          packages: 'platform-tools platforms;android-36 build-tools;36.0.0'
 
       - name: Install Gradle 8.11.1
         uses: gradle/actions/setup-gradle@v4
